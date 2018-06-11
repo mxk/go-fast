@@ -9,6 +9,33 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestCall(t *testing.T) {
+	var a, b bool
+	require.NoError(t, Call(
+		func() error {
+			a = true
+			return nil
+		},
+		func() error {
+			b = true
+			return nil
+		},
+	))
+	require.True(t, a)
+	require.True(t, b)
+
+	require.Error(t, Call(
+		func() error {
+			a = false
+			return nil
+		},
+		func() error {
+			return errors.New("")
+		},
+	))
+	require.False(t, a)
+}
+
 func TestForEach(t *testing.T) {
 	// Various combinations of different n and batch values
 	for n := 0; n <= 256; {

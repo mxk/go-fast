@@ -5,6 +5,21 @@ import (
 	"sync"
 )
 
+// Call calls each fn in a separate goroutine, waits for completion of all
+// calls, and returns any non-nil error. It is undefined which error is returned
+// if multiple calls fail.
+func Call(fn ...func() error) error {
+	var ctx callCtx
+	ctx.Add(len(fn))
+	for _, f := range fn {
+		go func(ctx *callCtx, f func() error) {
+			ctx.done(f())
+		}(&ctx, f)
+	}
+	ctx.Wait()
+	return ctx.err
+}
+
 // ForEachIO executes n IO-bound tasks using up-to 64 worker goroutines.
 func ForEachIO(n int, fn func(i int) error) error {
 	return ForEach(n, 0, fn)
@@ -38,27 +53,20 @@ func ForEach(n, batch int, fn func(i int) error) error {
 	}
 
 	// Avoid channels if there is only one batch
-	var wg sync.WaitGroup
 	if n <= batch {
-		var mu sync.Mutex
-		var anyErr error
-		wg.Add(n)
+		var ctx callCtx
+		ctx.Add(n)
 		for i := 0; i < n; i++ {
-			go func(i int) {
-				defer wg.Done()
-				if err := fn(i); err != nil {
-					// Using mutex instead of atomic.Value to allow mixed types
-					mu.Lock()
-					anyErr = err
-					mu.Unlock()
-				}
-			}(i)
+			go func(ctx *callCtx, fn func(i int) error, i int) {
+				ctx.done(fn(i))
+			}(&ctx, fn, i)
 		}
-		wg.Wait()
-		return anyErr
+		ctx.Wait()
+		return ctx.err
 	}
 
 	// Start waiter goroutine
+	var wg sync.WaitGroup
 	ich := make(chan int)
 	ech := make(chan error)
 	wg.Add(batch)
@@ -100,4 +108,21 @@ func ForEach(n, batch int, fn func(i int) error) error {
 	for err = range ech {
 	}
 	return err
+}
+
+// callCtx synchronizes function calls in separate goroutines. Access to err is
+// protected by a mutex instead of atomic.Value to allow mixing concrete types.
+type callCtx struct {
+	sync.WaitGroup
+	sync.Mutex
+	err error
+}
+
+func (ctx *callCtx) done(err error) {
+	if err != nil {
+		ctx.Lock()
+		ctx.err = err
+		ctx.Unlock()
+	}
+	ctx.Done()
 }
