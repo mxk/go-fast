@@ -1,3 +1,5 @@
+// Package fast contains utility functions and types aimed at improving
+// performance.
 package fast
 
 import (
