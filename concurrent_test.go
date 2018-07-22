@@ -96,5 +96,5 @@ func TestForEach(t *testing.T) {
 		return nil
 	}))
 	require.Equal(t, strings.Repeat("1", 10), string(b[:10]))
-	require.Equal(t, strings.Repeat("0", 30), string(b[20:]))
+	require.Equal(t, strings.Repeat("0", 10), string(b[40:]))
 }
