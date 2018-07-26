@@ -7,6 +7,15 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestRandUint64(t *testing.T) {
+	a := RandUint64()
+	b := RandUint64()
+	if a == b {
+		b = RandUint64()
+	}
+	require.NotEqual(t, a, b)
+}
+
 func TestRandID(t *testing.T) {
 	require.Empty(t, RandID(0))
 	n, seen := 0, [256]bool{}

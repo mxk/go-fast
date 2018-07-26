@@ -1,6 +1,9 @@
 package fast
 
-import "crypto/rand"
+import (
+	"crypto/rand"
+	"encoding/binary"
+)
 
 // RandBytes returns b after filling it with random bytes from a CSPRNG.
 func RandBytes(b []byte) []byte {
@@ -9,6 +12,12 @@ func RandBytes(b []byte) []byte {
 		panic("fast: crypto/rand error: " + err.Error())
 	}
 	return b
+}
+
+// RandUint64 returns a random uint64 value from a CSPRNG.
+func RandUint64() uint64 {
+	var b [8]byte
+	return binary.LittleEndian.Uint64(RandBytes(b[:]))
 }
 
 // RandID returns a random alphanumeric (base62) string of length n with the
