@@ -11,15 +11,22 @@ import (
 // calls, and returns any non-nil error. It is undefined which error is returned
 // if multiple calls fail.
 func Call(fn ...func() error) error {
-	var ctx callCtx
-	ctx.Add(len(fn))
-	for _, f := range fn {
-		go func(ctx *callCtx, f func() error) {
-			ctx.done(f())
-		}(&ctx, f)
+	var err error
+	if len(fn) > 1 {
+		var ctx callCtx
+		ctx.Add(len(fn))
+		for _, f := range fn[:len(fn)-1] {
+			go func(ctx *callCtx, f func() error) {
+				ctx.done(f())
+			}(&ctx, f)
+		}
+		ctx.done(fn[len(fn)-1]())
+		ctx.Wait()
+		err = ctx.err
+	} else if len(fn) == 1 {
+		err = fn[0]()
 	}
-	ctx.Wait()
-	return ctx.err
+	return err
 }
 
 // ForEachIO executes n IO-bound tasks using up-to 64 worker goroutines.

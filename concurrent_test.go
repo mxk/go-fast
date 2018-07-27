@@ -11,6 +11,14 @@ import (
 
 func TestCall(t *testing.T) {
 	var a, b bool
+	require.NoError(t, Call())
+	require.NoError(t, Call(func() error {
+		a = true
+		return nil
+	}))
+	require.True(t, a)
+
+	a = false
 	require.NoError(t, Call(
 		func() error {
 			a = true
