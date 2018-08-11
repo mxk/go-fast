@@ -8,19 +8,19 @@ import (
 )
 
 // Call calls each fn in a separate goroutine, waits for completion of all
-// calls, and returns any non-nil error. It is undefined which error is returned
-// if multiple calls fail.
+// calls, and returns the first (in parameter order) non-nil error.
 func Call(fn ...func() error) error {
 	var err error
 	if len(fn) > 1 {
 		var ctx callCtx
 		ctx.Add(len(fn))
-		for _, f := range fn[:len(fn)-1] {
-			go func(ctx *callCtx, f func() error) {
-				ctx.done(f())
-			}(&ctx, f)
+		last := len(fn) - 1
+		for i, f := range fn[:last] {
+			go func(ctx *callCtx, i int, f func() error) {
+				ctx.done(i, f())
+			}(&ctx, i, f)
 		}
-		ctx.done(fn[len(fn)-1]())
+		ctx.done(last, fn[last]())
 		ctx.Wait()
 		err = ctx.err
 	} else if len(fn) == 1 {
@@ -41,9 +41,9 @@ func ForEachCPU(n int, fn func(i int) error) error {
 
 // ForEach executes n tasks using at most batch goroutines. If batch is <= 0,
 // 64 goroutines are used (more may be used if n is close to 64). Function fn is
-// called for each task with i in the range [0,n). If fn returns an error, all
-// pending tasks are canceled and the error is returned. It is undefined which
-// error is returned if multiple concurrent tasks fail.
+// called for each task with i in the range [0,n). If any call returns an error,
+// all pending tasks are canceled and the error associated with the lowest i is
+// returned.
 func ForEach(n, batch int, fn func(i int) error) error {
 	if n <= 1 || batch == 1 {
 		for i := 0; i < n; i++ {
@@ -65,11 +65,13 @@ func ForEach(n, batch int, fn func(i int) error) error {
 	if n <= batch {
 		var ctx callCtx
 		ctx.Add(n)
-		for i := 0; i < n; i++ {
-			go func(ctx *callCtx, fn func(i int) error, i int) {
-				ctx.done(fn(i))
-			}(&ctx, fn, i)
+		last := n - 1
+		for i := 0; i < last; i++ {
+			go func(ctx *callCtx, i int, fn func(i int) error) {
+				ctx.done(i, fn(i))
+			}(&ctx, i, fn)
 		}
+		ctx.done(last, fn(last))
 		ctx.Wait()
 		return ctx.err
 	}
@@ -77,7 +79,7 @@ func ForEach(n, batch int, fn func(i int) error) error {
 	// Start waiter goroutine
 	var wg sync.WaitGroup
 	ich := make(chan int)
-	ech := make(chan error)
+	ech := make(chan ordErr)
 	wg.Add(batch)
 	go func() {
 		defer close(ech)
@@ -89,11 +91,11 @@ func ForEach(n, batch int, fn func(i int) error) error {
 		go func(i int) {
 			defer wg.Done()
 			if err := fn(i); err != nil {
-				ech <- err
+				ech <- ordErr{i, err}
 			} else {
 				for i = range ich {
 					if err = fn(i); err != nil {
-						ech <- err
+						ech <- ordErr{i, err}
 						break
 					}
 				}
@@ -101,37 +103,51 @@ func ForEach(n, batch int, fn func(i int) error) error {
 		}(i)
 	}
 
-	// Send remaining tasks while waiting for error
-	var err error
+	// Send remaining tasks while waiting for the first error
+	var err ordErr
 	for i := batch; i < n; i++ {
 		select {
 		case ich <- i:
 			continue
-		case err = <-ech:
+		case e := <-ech:
+			err.set(e.ord, e.err)
 		}
 		break
 	}
 	close(ich)
 
-	// Wait for completion of all tasks
-	for err = range ech {
+	// Wait for completion of all running tasks
+	for e := range ech {
+		err.set(e.ord, e.err)
 	}
-	return err
+	return err.err
 }
 
-// callCtx synchronizes function calls in separate goroutines. Access to err is
-// protected by a mutex instead of atomic.Value to allow mixing concrete types.
+// callCtx synchronizes function calls in separate goroutines.
 type callCtx struct {
 	sync.WaitGroup
 	sync.Mutex
-	err error
+	ordErr
 }
 
-func (ctx *callCtx) done(err error) {
+func (ctx *callCtx) done(ord int, err error) {
 	if err != nil {
 		ctx.Lock()
-		ctx.err = err
+		ctx.set(ord, err)
 		ctx.Unlock()
 	}
 	ctx.Done()
+}
+
+// ordErr is an ordered error.
+type ordErr struct {
+	ord int
+	err error
+}
+
+func (e *ordErr) set(ord int, err error) {
+	if ord < e.ord || e.err == nil {
+		e.ord = ord
+		e.err = err
+	}
 }

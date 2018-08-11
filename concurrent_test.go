@@ -2,24 +2,26 @@ package fast
 
 import (
 	"bytes"
-	"errors"
+	"fmt"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 func TestCall(t *testing.T) {
 	var a, b bool
-	require.NoError(t, Call())
-	require.NoError(t, Call(func() error {
+	assert.NoError(t, Call())
+	assert.NoError(t, Call(func() error {
 		a = true
 		return nil
 	}))
-	require.True(t, a)
+	assert.True(t, a)
 
 	a = false
-	require.NoError(t, Call(
+	assert.NoError(t, Call(
 		func() error {
 			a = true
 			return nil
@@ -29,19 +31,33 @@ func TestCall(t *testing.T) {
 			return nil
 		},
 	))
-	require.True(t, a)
-	require.True(t, b)
+	assert.True(t, a)
+	assert.True(t, b)
 
-	require.Error(t, Call(
+	// Error return
+	a = false
+	e1, e2 := fmt.Errorf("e1"), fmt.Errorf("e2")
+	assert.Equal(t, e2, Call(
 		func() error {
-			a = false
+			a = true
 			return nil
 		},
-		func() error {
-			return errors.New("")
-		},
+		func() error { return e2 },
 	))
-	require.False(t, a)
+	assert.True(t, a)
+
+	for i := time.Duration(0); i < 5; i++ {
+		require.Equal(t, e1, Call(
+			func() error {
+				time.Sleep(i * time.Millisecond)
+				return e1
+			},
+			func() error {
+				time.Sleep((4 - i) * time.Millisecond)
+				return e2
+			},
+		))
+	}
 }
 
 func TestForEach(t *testing.T) {
@@ -63,46 +79,45 @@ func TestForEach(t *testing.T) {
 	}
 
 	// Error return
-	Err := errors.New("")
-	require.NoError(t, ForEachIO(0, func(i int) error {
-		return Err
+	e := fmt.Errorf("e")
+	require.NoError(t, ForEachIO(0, func(i int) error { return e }))
+	require.Equal(t, e, ForEachCPU(int(^uint(0)>>1), func(i int) error {
+		return e
 	}))
-	require.Error(t, ForEachCPU(int(^uint(0)>>1), func(i int) error {
-		return Err
-	}))
-	for j := 0; j < 4; j++ {
-		for batch := range []int{0, 1, 2, 5} {
-			require.Error(t, ForEach(4, batch, func(i int) error {
-				if i == j {
-					return Err
+	for j, n := 0, 8; j < n; j++ {
+		for batch := range []int{0, 1, 2, 5, 10} {
+			require.EqualError(t, ForEach(n, batch, func(i int) error {
+				if i >= j {
+					return fmt.Errorf("%d", i)
 				}
 				return nil
-			}))
+			}), fmt.Sprint(j))
 		}
 	}
 
 	// One batch, no early termination
 	b := bytes.Repeat([]byte{'0'}, 50)
-	require.Error(t, ForEach(len(b), len(b), func(i int) error {
-		if i == 10 {
-			return errors.New("")
+	require.EqualError(t, ForEach(len(b), len(b), func(i int) error {
+		if i == 10 || i == 40 {
+			return fmt.Errorf("%d", i)
 		}
 		b[i] = '1'
 		return nil
-	}))
+	}), "10")
 	want := bytes.Repeat([]byte{'1'}, 50)
 	want[10] = '0'
+	want[40] = '0'
 	require.Equal(t, string(want), string(b))
 
 	// Multiple batches, early termination
 	b = bytes.Repeat([]byte{'0'}, 50)
-	require.Error(t, ForEach(len(b), 2, func(i int) error {
-		if i == 10 {
-			return errors.New("")
+	require.EqualError(t, ForEach(len(b), 2, func(i int) error {
+		if i == 10 || i == 40 {
+			return fmt.Errorf("%d", i)
 		}
 		b[i] = '1'
 		return nil
-	}))
+	}), "10")
 	require.Equal(t, strings.Repeat("1", 10), string(b[:10]))
 	require.Equal(t, strings.Repeat("0", 10), string(b[40:]))
 }
