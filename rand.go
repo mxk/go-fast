@@ -21,7 +21,9 @@ func RandUint64() uint64 {
 }
 
 // RandID returns a random alphanumeric (base62) string of length n with the
-// first character always an upper-case letter.
+// first character always an upper-case letter. The total amount of entropy is:
+//
+//	4.7 + (n-1)*5.954
 func RandID(n int) string {
 	const b62 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
 	buf := RandBytes(make([]byte, n+n))
