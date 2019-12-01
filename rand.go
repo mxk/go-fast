@@ -3,6 +3,7 @@ package fast
 import (
 	"crypto/rand"
 	"encoding/binary"
+	"math/bits"
 )
 
 // RandBytes returns b after filling it with random bytes from a CSPRNG.
@@ -25,24 +26,41 @@ func RandUint64() uint64 {
 //
 //	4.7 + (n-1)*5.954
 func RandID(n int) string {
-	const b62 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
-	buf := RandBytes(make([]byte, n+n))
-	max, mask := byte(26), byte(31)
-	for i := range buf[:n] {
+	return RandStr(n, func(i int) string {
+		if i == 0 {
+			return "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+		}
+		return "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
+	})
+}
+
+// RandStr generates a random ASCII string of length n. It calls dict with i in
+// the range [0,n) and selects a random byte from the returned string, which
+// must be between 1 and 256 bytes long.
+func RandStr(n int, dict func(i int) string) string {
+	b := RandBytes(make([]byte, n+n+4))
+	for i := range b[:n] {
+		s := dict(i)
+		if len(s) <= 1 {
+			if len(s) == 0 {
+				b[i] = '-'
+			} else {
+				b[i] = s[0]
+			}
+			continue
+		}
+		mask := byte(1<<bits.Len8(uint8(len(s)-1)) - 1)
 		for {
-			if r := buf[i] & mask; r < max {
-				buf[i] = b62[r]
-				max, mask = 62, 63
+			if r := b[i] & mask; int(r) < len(s) {
+				b[i] = s[r]
 				break
 			}
-			if len(buf) == n {
-				buf = buf[:cap(buf)]
-				RandBytes(buf[n:])
+			if len(b) == n {
+				b = b[:cap(b)]
+				RandBytes(b[n:])
 			}
-			j := len(buf) - 1
-			buf[i] = buf[j]
-			buf = buf[:j]
+			b[i], b = b[len(b)-1], b[:len(b)-1]
 		}
 	}
-	return string(buf[:n])
+	return string(b[:n])
 }

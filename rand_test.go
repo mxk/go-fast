@@ -1,9 +1,11 @@
 package fast
 
 import (
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -35,4 +37,27 @@ func TestRandID(t *testing.T) {
 		}
 	}
 	require.Equal(t, 62, n)
+}
+
+func TestRandStr(t *testing.T) {
+	require.Empty(t, RandStr(0, func(int) string { return "x" }))
+	require.Equal(t, "---", RandStr(3, func(int) string { return "" }))
+	require.Equal(t, "xxx", RandStr(3, func(int) string { return "x" }))
+	s := RandStr(1024, func(i int) string {
+		switch i {
+		case 0:
+			return "a"
+		case 1023:
+			return "z"
+		default:
+			return "12"
+		}
+	})
+	require.Len(t, s, 1024)
+	assert.Equal(t, "a", s[:1])
+	assert.Equal(t, "z", s[len(s)-1:])
+	assert.Equal(t, 1, strings.Count(s, "a"))
+	assert.Equal(t, 1, strings.Count(s, "z"))
+	assert.True(t, strings.Count(s, "1") > 256)
+	assert.True(t, strings.Count(s, "2") > 256)
 }
